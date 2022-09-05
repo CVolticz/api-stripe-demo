@@ -16,6 +16,54 @@ app.use(
 );
 
 /**
+ * On premise mock database use to store customer information
+ * TODO: change this to production grade database
+ */
+const customers = {
+  // stripeCustomerId : data
+  stripeCutomerId: {
+    apiKey: '123xyz',
+    active: false,
+    itemId: 'stripeItemId',
+    call: 0,
+  },
+};
+
+/**
+ * Customer Api Key Map for quick customer ookup
+ * Before to Hash Salt/Pepper this value accordingly
+ */
+const apiKeys = {
+  // apiKey: customerdata
+  "123xyz": "cust1"
+};
+
+/**
+ * Functions to generate/hash the API Key
+ * This APi Key will be given to the user
+ * The ApiKey need to be Hash before storing it inside our database
+ */
+function generateAPIKey() {
+  const { randomBytes } = require('crypto');
+  const apiKey = randomBytes(16).toString('hex');
+  const hashedAPIKey = hashAPIKey(apiKey);
+
+  //ensure the API key is unique
+  if(apiKeys[hashAPIKey]) {
+    generateAPIKey();
+  } else {
+    return { hashedAPIKey, apiKey };
+  }
+};
+function hashAPIKey(apiKey) {
+  const { createHash } = require('crypto');
+  const hashedAPIKey = createHash('sha256').update(apiKey).digest('hex');
+  return hashedAPIKey;
+}
+
+
+
+/**
  * Implement Stripe Checkout Endpoint
  * Passing in user's payment information handled by stripe
  * Checking for Authorization
@@ -73,31 +121,30 @@ app.post('/webhook', async (req, res) => {
 
   switch (eventType) {
     case 'checkout.session.completed':
-      console.log(data);
-      // // Data included in the event object:
-      // const customerId = data.object.customer;
-      // const subscriptionId = data.object.subscription;
+      // Data included in the event object:
+      const customerId = data.object.customer;
+      const subscriptionId = data.object.subscription;
 
-      // console.log(
-      //   `💰 Customer ${customerId} subscribed to plan ${subscriptionId}`
-      // );
+      console.log(
+        `💰 Customer ${customerId} subscribed to plan ${subscriptionId}`
+      );
 
-      // // Get the subscription. The first item is the plan the user subscribed to.
-      // const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-      // const itemId = subscription.items.data[0].id;
+      // Get the subscription. The first item is the plan the user subscribed to.
+      const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+      const itemId = subscription.items.data[0].id;
 
-      // // Generate API key
-      // const { apiKey, hashedAPIKey } = generateAPIKey();
-      // console.log(`User's API Key: ${apiKey}`);
-      // console.log(`Hashed API Key: ${hashedAPIKey}`);
+      // Generate API key
+      const { apiKey, hashedAPIKey } = generateAPIKey();
+      console.log(`User's API Key: ${apiKey}`);
+      console.log(`Hashed API Key: ${hashedAPIKey}`);
 
-      // // Store the API key in your database.
-      // customers[customerId] = {
-      //   apikey: hashedAPIKey,
-      //   itemId,
-      //   active: true,
-      // };
-      // apiKeys[hashedAPIKey] = customerId;
+      // Store the API key in your database.
+      customers[customerId] = {
+        apikey: hashedAPIKey,
+        itemId,
+        active: true,
+      };
+      apiKeys[hashedAPIKey] = customerId;
 
       break;
     case 'invoice.paid':
@@ -122,9 +169,35 @@ app.post('/webhook', async (req, res) => {
 /**
  * Simple get api
  */
-app.get("/api", (req, res) => {
-    const apiKey = req.query.apiKey;
-    res.send({data: '💩💩💩💩💩'});
+app.get("/api", async (req, res) => {
+    // Only subscribed custoemrs can use the api
+    const { apiKey } = req.query;
+    if (!apiKey) {
+      res.sendStatus(400);
+    }
+
+    // hash input API key to look for the customer
+    // check for customer active state
+    const hashedAPIKey = hashAPIKey(apiKey);
+    const customerId = apiKeys[hashedAPIKey];
+    const customer = customers[customerId];
+
+    if (!customer || !customer.active) {
+      res.sendStatus(403); // not authorized
+    } else {
+  
+      // Record usage with Stripe Billing
+      const record = await stripe.subscriptionItems.createUsageRecord(
+        customer.itemId,
+        {
+          quantity: 1,
+          timestamp: 'now',
+          action: 'increment',
+        }
+      );
+      res.send({ data: '🔥🔥🔥🔥🔥🔥🔥🔥', usage: record });
+    }
+
 });
 
 const port = process.env.PORT || 8080;
