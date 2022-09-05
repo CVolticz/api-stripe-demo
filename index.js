@@ -166,9 +166,19 @@ app.post('/webhook', async (req, res) => {
   
 
 
-/**
- * Simple get api
- */
+// Get information about the customer
+app.get('/customers/:id', (req, res) => {
+  const customerId = req.params.id;
+  const account = customers[customerId];
+  if (account) {
+    res.send(account);
+  } else {
+    res.sendStatus(404);
+  }
+});
+
+
+// Simple GET Request API implementing Stripe system
 app.get("/api", async (req, res) => {
     // Only subscribed custoemrs can use the api
     const { apiKey } = req.query;
@@ -199,6 +209,8 @@ app.get("/api", async (req, res) => {
     }
 
 });
+
+
 
 const port = process.env.PORT || 8080;
 app.listen(port, () => console.log(`Server Start on Port: ${port}`));
